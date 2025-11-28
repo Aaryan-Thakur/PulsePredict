@@ -1,6 +1,6 @@
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 # --- CONFIGURATION ---
@@ -12,7 +12,8 @@ LOG_FILE = "daily_weather_log.csv"
 def get_current_month_weather():
     """
     Fetches Temperature, Humidity, and Rainfall for the current month.
-    Returns: dictionary with 'Monthly_Avg_Temp', 'Monthly_Avg_Humidity', 'Rainfall_mm'
+    Also fetches 'Rainfall_Lag_2' (Rainfall from 2 months ago) for the Water-Borne model.
+    Returns: dictionary with 'Monthly_Avg_Temp', 'Monthly_Avg_Humidity', 'Rainfall_mm', 'Rainfall_Lag_2'
     """
     print(f"🤖 AGENT: Waking up to fetch Weather Data for {datetime.now().strftime('%B %Y')}...")
 
@@ -23,11 +24,9 @@ def get_current_month_weather():
     start_str = first_day.strftime("%Y-%m-%d")
     end_str = today.strftime("%Y-%m-%d")
     
-    print(f"   -> Fetching data from {start_str} to {end_str}...")
+    print(f"   -> Fetching current data from {start_str} to {end_str}...")
 
-    # 2. Build API Request
-    # We use the Open-Meteo Forecast API which also provides recent history (past days)
-    # Parameters needed: Temperature (2m), Humidity (2m), and Rain
+    # 2. Build API Request (Current Weather)
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": LAT,
@@ -52,7 +51,7 @@ def get_current_month_weather():
         
         if not timestamps:
             print("   ⚠️ No data returned from API.")
-            return {'Monthly_Avg_Temp': 0, 'Monthly_Avg_Humidity': 0, 'Rainfall_mm': 0}
+            return {'Monthly_Avg_Temp': 0, 'Monthly_Avg_Humidity': 0, 'Rainfall_mm': 0, 'Rainfall_Lag_2': 0}
 
         # Create DataFrame
         df = pd.DataFrame({
@@ -63,17 +62,54 @@ def get_current_month_weather():
         })
         
         # 4. Calculate Aggregates for the Model
-        # Temperature & Humidity: We want the AVERAGE for the month so far
         avg_temp = df['temp'].mean()
         avg_humidity = df['humidity'].mean()
-        
-        # Rainfall: We want the TOTAL SUM for the month so far
         total_rain = df['rain'].sum()
+        
+        # --- NEW: Fetch Historical Lag Data (2 Months Ago) ---
+        # The Water-Borne model needs 'Rainfall_Lag_2'.
+        # Logic: If today is Nov, we need Sept rainfall.
+        
+        # Calculate dates for 2 months ago
+        first_current = today.replace(day=1)
+        first_prev = (first_current - timedelta(days=1)).replace(day=1) # 1st of Prev Month
+        end_lag = (first_prev - timedelta(days=1))                      # Last day of Lag Month
+        first_lag = end_lag.replace(day=1)                              # 1st day of Lag Month
+        
+        start_lag_str = first_lag.strftime("%Y-%m-%d")
+        end_lag_str = end_lag.strftime("%Y-%m-%d")
+        
+        print(f"   -> Fetching historical rain (Lag 2) from {start_lag_str} to {end_lag_str}...")
+        
+        # Use Archive API for historical data
+        url_archive = "https://archive-api.open-meteo.com/v1/archive"
+        params_lag = {
+            "latitude": LAT,
+            "longitude": LON,
+            "hourly": "rain",
+            "timezone": "auto",
+            "start_date": start_lag_str,
+            "end_date": end_lag_str
+        }
+        
+        lag_rain = 0.0
+        try:
+            resp_lag = requests.get(url_archive, params=params_lag)
+            resp_lag.raise_for_status()
+            data_lag = resp_lag.json()
+            rains_lag = data_lag.get('hourly', {}).get('rain', [])
+            # Sum filtering out Nones
+            if rains_lag:
+                lag_rain = sum(r for r in rains_lag if r is not None)
+        except Exception as e:
+            print(f"   ⚠️ Error fetching lag data: {e}")
+            # We default to 0.0 if history fetch fails, so the model doesn't crash
         
         results = {
             'Monthly_Avg_Temp': round(avg_temp, 2),
             'Monthly_Avg_Humidity': round(avg_humidity, 2),
-            'Rainfall_mm': round(total_rain, 2)
+            'Rainfall_mm': round(total_rain, 2),
+            'Rainfall_Lag_2': round(lag_rain, 2) # <--- Added Lag Feature
         }
         
         # 5. Save to CSV
@@ -86,13 +122,13 @@ def get_current_month_weather():
         df_log.to_csv(LOG_FILE, mode='a', header=header, index=False)
         
         print(f"✅ Success. Data logged to {LOG_FILE}")
-        print(f"   -> Results: Temp: {results['Monthly_Avg_Temp']}°C, Rain: {results['Rainfall_mm']}mm, Humidity: {results['Monthly_Avg_Humidity']}%")
+        print(f"   -> Results: Temp: {results['Monthly_Avg_Temp']}°C, Rain: {results['Rainfall_mm']}mm, Humidity: {results['Monthly_Avg_Humidity']}%,Lag Rain: {results['Rainfall_Lag_2']}mm")
         
         return results
 
     except Exception as e:
         print(f"   ❌ API Error: {e}")
-        return {'Monthly_Avg_Temp': 0, 'Monthly_Avg_Humidity': 0, 'Rainfall_mm': 0}
+        return {'Monthly_Avg_Temp': 0, 'Monthly_Avg_Humidity': 0, 'Rainfall_mm': 0, 'Rainfall_Lag_2': 0}
 
 if __name__ == "__main__":
     get_current_month_weather()
