@@ -1,0 +1,3 @@
+timestamp,Vector_Pred,Vector_Status,Respiratory_Pred,Resp_Status,Water_Pred,Water_Status
+2025-11-29 02:29:53,1.0514239573834137,🟢 Normal,2.5113703140663524,🟢 Normal,5.263951337233056,🔴 SURGE
+2025-11-29 02:58:19,1.05,🟢 Normal,2.54,🟢 Normal,5.26,🔴 SURGE
