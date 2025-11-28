@@ -1,0 +1,5 @@
+Monthly_Avg_AQI,Days_Severe_AQI,timestamp,data_source
+182.62,0,2025-11-29 00:42:54,Open-Meteo
+182.62,0,2025-11-29 00:47:15,Open-Meteo
+212.63,0,2025-11-29 00:49:45,Open-Meteo (Converted to CPCB)
+212.63,4,2025-11-29 00:58:55,Open-Meteo (Converted to CPCB)
