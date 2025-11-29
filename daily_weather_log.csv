@@ -1,0 +1,2 @@
+Monthly_Avg_Temp,Monthly_Avg_Humidity,Rainfall_mm,Rainfall_Lag_2,timestamp,data_source
+19.68,64.62,0.0,119.3,2025-11-29 10:41:30,Open-Meteo Weather API

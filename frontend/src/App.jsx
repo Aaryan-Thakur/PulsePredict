@@ -14,7 +14,11 @@ import {
   RefreshCw,
   UserCog,
   Server,
-  AlertTriangle 
+  AlertTriangle,
+  History,
+  Clock,
+  Mail,
+  FileText
 } from 'lucide-react';
 
 // --- MOCK DATA FOR DEMO MODE ---
@@ -32,31 +36,41 @@ const MOCK_DATA = {
   },
   top_trend: "Dengue",
   inventory: {
-    masks: 454,
-    oxygen: 32,
-    beds_available: 2,
-    ors_packs: 45
+    "N95 Masks": 1240,
+    "Oxygen Cylinders (Type D)": 45, 
+    "ICU Beds Available": 8, 
+    "IV Fluids (RL 500ml)": 120,
+    "Dengue IgG Kits": 50,
+    "Paracetamol Infusion": 85
   },
   ai_agent: {
     summary: "Critical vector-borne disease risk detected. High humidity and temperature creating ideal breeding grounds. Immediate automated intervention recommended.",
     actions: [
       { 
         id: 1, 
-        title: "Broadcast Dengue Alert", 
+        title: "Broadcast High-Risk Alert", 
         type: "COMMUNICATION", 
-        description: "Send SMS blast to all on-call staff regarding triage protocols.", 
+        description: "Send automated email to Dept Heads regarding Dengue surge.", 
         priority: "High",
         executable: true,
-        function_payload: { action: "ALERT_ALL", message: "High Dengue Risk" }
+        status: "PENDING",
+        function_payload: { 
+          tool: "ALERT_EMAIL", 
+          args: { recipient: "chief_medical@hospital.com", subject: "URGENT: Dengue Surge", body: "Activate Protocol V-1. Prepare Triage Area B." } 
+        }
       },
       { 
         id: 2, 
-        title: "Update Inventory Logs", 
+        title: "Order Dengue Test Kits", 
         type: "INVENTORY", 
-        description: "Sync current stock levels with central supply database.", 
+        description: "Generate PO for 200 kits from vendor 'MediSafe'.", 
         priority: "Medium",
         executable: true,
-        function_payload: { action: "SYNC_DB" }
+        status: "PENDING",
+        function_payload: { 
+          tool: "GENERATE_PO", 
+          args: { item: "Dengue IgG Kits", quantity: 200, vendor: "MediSafe Corp" } 
+        }
       },
       { 
         id: 3, 
@@ -64,7 +78,8 @@ const MOCK_DATA = {
         type: "PROTOCOL", 
         description: "Physical deep cleaning required for Ward C.", 
         priority: "High",
-        executable: false, // Manual task
+        executable: false, 
+        status: "PENDING",
         function_payload: null
       }
     ]
@@ -137,15 +152,25 @@ const RiskCard = ({ title, score, status, type }) => {
   );
 };
 
-const ActionCard = ({ action, onExecute, isExecuting, isExecuted }) => {
+const ActionCard = ({ action, onExecute, isExecuting }) => {
+  const isExecuted = action.status === "EXECUTED";
+
+  // Dynamic Icon based on tool
+  let ActionIcon = Zap;
+  if (action.function_payload?.tool === "ALERT_EMAIL") ActionIcon = Mail;
+  if (action.function_payload?.tool === "GENERATE_PO") ActionIcon = FileText;
+
   if (isExecuted) {
     return (
-      <div className="bg-emerald-900/20 border border-emerald-500/30 p-4 rounded-lg flex items-center justify-between mb-3 animate-in fade-in slide-in-from-bottom-2">
-        <div className="flex items-center space-x-3 text-emerald-400">
+      <div className="bg-emerald-900/10 border border-emerald-500/20 p-4 rounded-lg flex items-center justify-between mb-3 animate-in fade-in slide-in-from-bottom-2">
+        <div className="flex items-center space-x-3 text-emerald-400/70">
           <CheckCircle size={20} />
-          <span className="font-medium line-through decoration-emerald-500/50 text-slate-400">{action.title}</span>
+          <div>
+            <h4 className="font-medium line-through decoration-emerald-500/50 text-slate-400 text-sm">{action.title}</h4>
+            <p className="text-xs text-slate-500">Completed by Pulse Predict</p>
+          </div>
         </div>
-        <span className="text-xs text-emerald-500 font-mono">EXECUTED</span>
+        <span className="text-xs text-emerald-500 font-mono bg-emerald-500/10 px-2 py-1 rounded">DONE</span>
       </div>
     );
   }
@@ -179,8 +204,8 @@ const ActionCard = ({ action, onExecute, isExecuting, isExecuted }) => {
             disabled={isExecuting}
             className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-900/20 border border-blue-500"
           >
-            {isExecuting ? <Loader className="animate-spin mr-2" size={14} /> : <Zap size={14} className="mr-2" />}
-            {isExecuting ? "Working..." : "AUTO-RUN"}
+            {isExecuting ? <Loader className="animate-spin mr-2" size={14} /> : <ActionIcon size={14} className="mr-2" />}
+            {isExecuting ? "Working..." : "APPROVE"}
           </button>
         ) : (
           <div className="flex-shrink-0 flex items-center text-slate-500 bg-slate-800 px-3 py-2 rounded-lg border border-slate-700 cursor-not-allowed opacity-75" title="Requires Human Intervention">
@@ -199,14 +224,16 @@ export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [executingId, setExecutingId] = useState(null);
-  const [executedActions, setExecutedActions] = useState(new Set());
   const [statusMsg, setStatusMsg] = useState("");
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [activeTab, setActiveTab] = useState("pending");
 
   const fetchData = async () => {
-    setLoading(true); // Ensure loading state is reset on retry
+    // Only set loading to true on the very first load
+    // This prevents the screen from flashing during polling
+    if (!data) setLoading(true);
+    
     try {
-      // 1. Attempt Fetch System State
       const response = await fetch('http://localhost:8000/system/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -222,11 +249,12 @@ export default function App() {
       }
     } catch (error) {
       console.warn("Backend unavailable. Switching to DEMO MODE automatically.");
-      // FALLBACK TO MOCK DATA AUTOMATICALLY
-      setData(MOCK_DATA);
-      setIsDemoMode(true);
-      setStatusMsg("Demo Mode Active: Backend unreachable");
-      setTimeout(() => setStatusMsg(""), 3000);
+      if (!data) { // Only fallback if we don't have data yet
+        setData(MOCK_DATA);
+        setIsDemoMode(true);
+        setStatusMsg("Demo Mode Active: Backend unreachable");
+        setTimeout(() => setStatusMsg(""), 3000);
+      }
     } finally {
       setLoading(false);
     }
@@ -237,7 +265,6 @@ export default function App() {
     setStatusMsg(`Agent executing: ${action.title}...`);
     
     try {
-      // 2. Execute Real Action
       const response = await fetch('http://localhost:8000/system/execute_action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -252,58 +279,58 @@ export default function App() {
       const result = await response.json();
       
       if (result.success) {
-        setExecutedActions(prev => new Set([...prev, action.id]));
-        
-        // 3. Refresh Data to show Real State Change
-        setTimeout(() => {
-           fetchData(); 
-           setStatusMsg(`Success: ${result.message}`);
-           setTimeout(() => setStatusMsg(""), 3000);
-        }, 1000);
+        // Refresh Data immediately to show "Executed" status
+        fetchData(); 
+        setStatusMsg(`Success: ${result.message}`);
+        setTimeout(() => setStatusMsg(""), 4000);
       }
     } catch (error) {
       console.warn("Execution failed (Demo Mode): Simulating success");
-      // SIMULATE SUCCESS IN DEMO MODE
       setTimeout(() => {
-        setExecutedActions(prev => new Set([...prev, action.id]));
         setStatusMsg("Success: Action logged (Demo Mode)");
         setExecutingId(null);
         setTimeout(() => setStatusMsg(""), 3000);
       }, 1500);
     } finally {
-      // If fetch succeeds, we might need to clear executingId here if not handled in try
       if (!isDemoMode) setExecutingId(null); 
     }
   };
 
+  // --- POLLING EFFECT ---
   useEffect(() => {
-    fetchData();
+    fetchData(); // Initial load
+
+    const interval = setInterval(() => {
+      fetchData();
+    }, 15000); // Poll every 15 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-blue-400">
         <Loader className="animate-spin mb-4" size={48} />
-        <p className="font-mono text-sm tracking-widest animate-pulse">CONNECTING TO SENTIN-AI CORE...</p>
+        <p className="font-mono text-sm tracking-widest animate-pulse">CONNECTING TO PULSE PREDICT CORE...</p>
       </div>
     );
   }
 
   if (!data) {
-    // This fallback screen is less likely to appear now, but kept for safety
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-rose-500">
         <AlertTriangle size={48} className="mb-4" />
         <h2 className="font-mono text-xl font-bold">SYSTEM ERROR</h2>
-        <p className="text-slate-500 text-sm mt-2 mb-6 max-w-md text-center">
-          Unable to load system data.
-        </p>
-        <button onClick={fetchData} className="px-4 py-2 bg-slate-800 rounded hover:bg-slate-700 text-white border border-slate-700 transition-colors">
+        <button onClick={fetchData} className="mt-4 px-4 py-2 bg-slate-800 rounded text-white border border-slate-700">
           Retry Connection
         </button>
       </div>
     );
   }
+
+  // Filter actions based on status
+  const pendingActions = data.ai_agent?.actions?.filter(a => a.status !== "EXECUTED") || [];
+  const executedActions = data.ai_agent?.actions?.filter(a => a.status === "EXECUTED") || [];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-blue-500/30">
@@ -425,7 +452,7 @@ export default function App() {
               <div className="grid grid-cols-2 gap-4">
                 {Object.entries(data.inventory).map(([key, val]) => (
                   <div key={key} className="flex justify-between items-center p-2 bg-slate-800 rounded hover:bg-slate-700 transition-colors">
-                    <span className="text-xs text-slate-400 capitalize">{key.replace('_', ' ')}</span>
+                    <span className="text-xs text-slate-400 capitalize">{key}</span>
                     <span className={`text-sm font-mono font-bold ${val < 10 ? 'text-rose-400' : 'text-emerald-400'}`}>
                       {val}
                     </span>
@@ -437,7 +464,7 @@ export default function App() {
 
           {/* RIGHT COLUMN: AI COMMAND CENTER (Width 7/12) */}
           <div className="lg:col-span-7">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex flex-col h-full">
               
               {/* Terminal Header */}
               <div className="bg-slate-950 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
@@ -446,10 +473,10 @@ export default function App() {
                    <div className="w-3 h-3 rounded-full bg-amber-500"></div>
                    <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
                 </div>
-                <div className="text-xs font-mono text-slate-500">sentin_ai_agent.exe</div>
+                <div className="text-xs font-mono text-slate-500">pulse_predict_core.exe</div>
               </div>
 
-              <div className="p-6">
+              <div className="p-6 flex-1 flex flex-col">
                 
                 {/* 1. Strategic Summary Section */}
                 <div className="mb-8">
@@ -464,30 +491,71 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 2. Action Items Feed */}
-                <div>
-                  <h3 className="text-blue-400 font-mono text-sm mb-4 flex items-center">
-                    <ClipboardList className="mr-2" size={16} /> 
-                    RECOMMENDED ACTIONS
-                  </h3>
-                  
-                  <div className="space-y-1">
-                    {data.ai_agent?.actions?.map((action) => (
-                      <ActionCard 
-                        key={action.id} 
-                        action={action}
-                        isExecuting={executingId === action.id}
-                        isExecuted={executedActions.has(action.id)}
-                        onExecute={handleExecuteAction}
-                      />
-                    ))}
-                    
-                    {!data.ai_agent?.actions && (
-                      <div className="text-center py-10 text-slate-600 italic">
-                        No immediate actions required.
-                      </div>
-                    )}
-                  </div>
+                {/* 2. Actions Tabs */}
+                <div className="flex border-b border-slate-800 mb-4">
+                  <button 
+                    onClick={() => setActiveTab('pending')}
+                    className={`pb-2 px-4 text-sm font-medium transition-colors ${
+                      activeTab === 'pending' 
+                      ? 'text-blue-400 border-b-2 border-blue-400' 
+                      : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <span className="flex items-center">
+                      <Clock size={14} className="mr-2" />
+                      Pending Tasks ({pendingActions.length})
+                    </span>
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('history')}
+                    className={`pb-2 px-4 text-sm font-medium transition-colors ${
+                      activeTab === 'history' 
+                      ? 'text-emerald-400 border-b-2 border-emerald-400' 
+                      : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <span className="flex items-center">
+                      <History size={14} className="mr-2" />
+                      Execution Log ({executedActions.length})
+                    </span>
+                  </button>
+                </div>
+
+                {/* 3. Action Items Feed */}
+                <div className="space-y-1 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
+                  {activeTab === 'pending' ? (
+                    <>
+                      {pendingActions.map((action) => (
+                        <ActionCard 
+                          key={action.id} 
+                          action={action}
+                          isExecuting={executingId === action.id}
+                          onExecute={handleExecuteAction}
+                        />
+                      ))}
+                      {pendingActions.length === 0 && (
+                        <div className="text-center py-10 text-slate-600 italic">
+                          All systems normal. No pending actions.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {executedActions.map((action) => (
+                        <ActionCard 
+                          key={action.id} 
+                          action={action}
+                          isExecuting={false}
+                          onExecute={() => {}}
+                        />
+                      ))}
+                      {executedActions.length === 0 && (
+                        <div className="text-center py-10 text-slate-600 italic">
+                          No actions executed in this session.
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
               </div>

@@ -57,7 +57,7 @@ aqi = st.sidebar.slider("Avg AQI", 50.0, 500.0, 150.0)
 days_severe = st.sidebar.slider("Days with Severe AQI", 0, 30, 2)
 
 # --- MAIN DASHBOARD ---
-st.title("🏥 Hospital Surge Command Center")
+st.title("🏥 Hospital Surge Model Demo Dashboard")
 st.markdown("Adjust the sliders to simulate future outbreaks and resource needs.")
 
 # Create 3 Columns for Layout

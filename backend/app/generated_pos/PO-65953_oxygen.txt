@@ -1,0 +1,18 @@
+
+    =========================================
+             HOSPITAL PURCHASE ORDER
+    =========================================
+    PO Number: PO-65953
+    Date:      2025-11-29 09:49:24
+    Vendor:    Medical Supply Inc.
+    -----------------------------------------
+    ITEM DETAILS:
+    
+    Item Name:       oxygen
+    Quantity:        50
+    Priority:        URGENT / AUTOMATED
+    -----------------------------------------
+    Authorized By:   Sentin-AI (Automated Agent)
+    Status:          PENDING FULFILLMENT
+    =========================================
+    

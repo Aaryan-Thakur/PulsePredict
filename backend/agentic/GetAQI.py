@@ -33,6 +33,7 @@ def get_current_month_aqi():
     """
     Fetches raw PM2.5 data and converts to Indian AQI.
     Returns: dictionary with 'Monthly_Avg_AQI' and 'Days_Severe_AQI'
+    FALLBACK: If API fails, reads from the last logged CSV entry.
     """
     print(f"🤖 AGENT: Waking up to fetch Air Quality (Indian AQI) for {datetime.now().strftime('%B %Y')}...")
 
@@ -58,7 +59,7 @@ def get_current_month_aqi():
     }
 
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=10) # Added timeout
         response.raise_for_status()
         data = response.json()
         
@@ -68,8 +69,7 @@ def get_current_month_aqi():
         pm25_values = hourly_data.get('pm2_5', [])
         
         if not pm25_values:
-            print("   ⚠️ No data returned from API.")
-            return {'Monthly_Avg_AQI': 0, 'Days_Severe_AQI': 0}
+            raise ValueError("No data returned from API")
 
         # Create DataFrame
         df = pd.DataFrame({
@@ -112,6 +112,30 @@ def get_current_month_aqi():
 
     except Exception as e:
         print(f"   ❌ API Error: {e}")
+        print("   ⚠️ API Unavailable. Attempting to read from local CSV backup...")
+        
+        # --- FALLBACK MECHANISM ---
+        if os.path.exists(LOG_FILE):
+            try:
+                df = pd.read_csv(LOG_FILE)
+                if not df.empty:
+                    # Get the last row
+                    last_entry = df.iloc[-1]
+                    results = {
+                        'Monthly_Avg_AQI': float(last_entry.get('Monthly_Avg_AQI', 0)),
+                        'Days_Severe_AQI': int(last_entry.get('Days_Severe_AQI', 0))
+                    }
+                    print(f"   📂 Loaded Fallback Data from {LOG_FILE}")
+                    print(f"   -> Results: Avg AQI: {results['Monthly_Avg_AQI']}, Severe Days: {results['Days_Severe_AQI']}")
+                    return results
+                else:
+                    print("   ❌ CSV exists but is empty.")
+            except Exception as csv_err:
+                print(f"   ❌ Failed to read CSV: {csv_err}")
+        else:
+            print(f"   ❌ CSV {LOG_FILE} not found.")
+
+        # Final Fallback if everything fails
         return {'Monthly_Avg_AQI': 0, 'Days_Severe_AQI': 0}
 
 if __name__ == "__main__":
